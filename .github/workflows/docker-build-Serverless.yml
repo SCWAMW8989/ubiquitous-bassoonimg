@@ -1,4 +1,3 @@
-```yaml
 name: Docker Build Serverless
 
 on:
@@ -8,7 +7,7 @@ on:
       - "Dockerfile.qwen-image-edit-serverless-v1_3.dockerfile"
       - "extra_model_paths.yaml"
       - "serverless_entrypoint.sh"
-      - ".github/workflows/docker-build-serverless.yml"
+      - ".github/workflows/docker-build-Serverless.yml"
   workflow_dispatch:
 
 jobs:
@@ -32,4 +31,3 @@ jobs:
           docker build -f Dockerfile.qwen-image-edit-serverless-v1_3.dockerfile \
             -t ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_3 .
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_3
-```
