@@ -1,6 +1,8 @@
-# Use the latest release tag from Docker Hub: runpod/worker-comfyui:VERSION_HERE-base
+# Base image: runpod/worker-comfyui, pinned to a tag that exists on Docker Hub.
+# 5.10.0-base was the newest published base tag on 2026-11-16 (release 5.11.0
+# exists on GitHub but has no image on Docker Hub; latest-base is from March).
 # The base tag IS your ComfyUI pin (replaces COMFYUI_PINNED_COMMIT).
-FROM runpod/worker-comfyui:VERSION_HERE-base
+FROM runpod/worker-comfyui:5.10.0-base
 
 # Pin the GGUF node once you have a known-good commit (replaces GGUF_NODE_PINNED_COMMIT).
 # Leave empty to track the default branch at build time.
