@@ -1,0 +1,35 @@
+```yaml
+name: Docker Build Serverless
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile.qwen-image-edit-serverless-v1_3.dockerfile"
+      - "extra_model_paths.yaml"
+      - "serverless_entrypoint.sh"
+      - ".github/workflows/docker-build-serverless.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: List files
+        run: find . -iname "*qwen-image-edit-serverless*" -o -name "serverless_entrypoint.sh" -o -name "extra_model_paths.yaml"
+
+      - name: Syntax check entrypoint
+        run: bash -n serverless_entrypoint.sh
+
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Build and push
+        run: |
+          docker build -f Dockerfile.qwen-image-edit-serverless-v1_3.dockerfile \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_3 .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_3
+```
