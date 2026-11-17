@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "Dockerfile.qwen-image-edit-serverless-v1_3.dockerfile"
+      - "Dockerfile.qwen-image-edit-serverless-v1_4.dockerfile"
       - "extra_model_paths.yaml"
       - "serverless_entrypoint.sh"
       - ".github/workflows/docker-build-Serverless.yml"
@@ -13,7 +13,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
+      - name: Free disk space (base image + baked models need about 60 GB)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force
+          df -h /
+
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -28,6 +36,6 @@ jobs:
 
       - name: Build and push
         run: |
-          docker build -f Dockerfile.qwen-image-edit-serverless-v1_3.dockerfile \
-            -t ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_3 .
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_3
+          docker build -f Dockerfile.qwen-image-edit-serverless-v1_4.dockerfile \
+            -t ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_4 .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_4
