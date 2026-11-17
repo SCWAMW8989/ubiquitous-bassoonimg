@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# serverless_entrypoint.sh (Serverless Edition v1.3)
+# serverless_entrypoint.sh (Serverless Edition v1_4)
 #
 # Hands-off GPU auto-detect for Qwen-Image-Edit-2511 (Unsloth GGUF) on
 # RunPod Serverless. Runs once per worker start, BEFORE the base image's
@@ -12,15 +12,15 @@
 #   2. Resolves quant + lowvram from the profile (QWEN_QUANT / QWEN_LOWVRAM
 #      env vars still win if you set them).
 #   3. Points a stable filename, qwen-image-edit-2511-ACTIVE.gguf, at the
-#      chosen quant file on the Network Volume. The workflow JSON always
+#      chosen quant file in the model folder (baked into the image in v1_4). The workflow JSON always
 #      uses that one filename, so the client never needs to know the GPU.
-#   4. Falls back to Q4_K_M (always on the volume) if the chosen quant
-#      file was never downloaded.
+#   4. Falls back to Q4_K_M (always present) if the chosen quant file is
+#      not in the model folder.
 #   5. Hands off to the base image's start script.
 
 set -euo pipefail
 
-VOL_ROOT="${QWEN_VOLUME_ROOT:-/runpod-volume/qwen-edit}"
+VOL_ROOT="${QWEN_VOLUME_ROOT:-/opt/qwen-edit}"
 COMFY_DIR="${COMFY_DIR:-/comfyui}"
 BASE_START="${BASE_START_SCRIPT:-/start.sh}"
 MODEL_DIR="$VOL_ROOT/ComfyUI/models/diffusion_models"
@@ -116,8 +116,8 @@ export QWEN_RES="${QWEN_RES:-$DEFAULT_RES}"
 # ---------------------------------------------------------------------------
 if [ ! -d "$MODEL_DIR" ]; then
   echo "ERROR: Model folder not found: $MODEL_DIR" >&2
-  echo "       Is the 'qwen-edit' Network Volume attached to this endpoint, and does" >&2
-  echo "       QWEN_VOLUME_ROOT match your volume layout?" >&2
+  echo "       Models are baked into the image under /opt/qwen-edit. If QWEN_VOLUME_ROOT" >&2
+  echo "       is set on the endpoint, remove it or point it at a folder with this layout." >&2
   exit 1
 fi
 
@@ -128,8 +128,7 @@ BASELINE_FILE="$MODEL_DIR/qwen-image-edit-2511-Q4_K_M.gguf"
 if [ -f "$WANT_FILE" ]; then
   CHOSEN="$WANT_FILE"
 elif [ -f "$BASELINE_FILE" ]; then
-  echo "WARNING: $WANT_FILE is not on the volume; falling back to Q4_K_M." >&2
-  echo "         Run start_comfyui.sh once on a pod with QWEN_QUANT=${QWEN_QUANT} to download it." >&2
+  echo "NOTE: $(basename "$WANT_FILE") is not in this image; using the baked Q4_K_M." >&2
   CHOSEN="$BASELINE_FILE"
 else
   echo "ERROR: Neither the requested quant nor the Q4_K_M baseline exists in $MODEL_DIR" >&2
