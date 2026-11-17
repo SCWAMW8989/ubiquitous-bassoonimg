@@ -4,9 +4,10 @@
 # The base tag IS your ComfyUI pin (replaces COMFYUI_PINNED_COMMIT).
 FROM runpod/worker-comfyui:5.10.0-base
 
-# Pin the GGUF node once you have a known-good commit (replaces GGUF_NODE_PINNED_COMMIT).
-# Leave empty to track the default branch at build time.
-ARG GGUF_NODE_COMMIT=
+# ComfyUI-GGUF node, pinned to the commit that built cleanly in Actions run #2
+# (2026-11-16). Override with --build-arg GGUF_NODE_COMMIT=... to move it;
+# set it empty to track the default branch at build time.
+ARG GGUF_NODE_COMMIT=6ea2651e7df66d7585f6ffee804b20e92fb38b8a
 
 RUN git clone https://github.com/city96/ComfyUI-GGUF /comfyui/custom_nodes/ComfyUI-GGUF \
  && if [ -n "$GGUF_NODE_COMMIT" ]; then git -C /comfyui/custom_nodes/ComfyUI-GGUF checkout "$GGUF_NODE_COMMIT"; fi \
