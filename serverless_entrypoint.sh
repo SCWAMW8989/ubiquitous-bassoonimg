@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# serverless_entrypoint.sh (Serverless Edition v1_4)
+# serverless_entrypoint.sh (Serverless Edition v1_5)
 #
 # Hands-off GPU auto-detect for Qwen-Image-Edit-2511 (Unsloth GGUF) on
 # RunPod Serverless. Runs once per worker start, BEFORE the base image's
 # own start script launches ComfyUI + the RunPod handler.
+#
+# v1_5: no SSH server unless ALLOW_SSH=1 (PUBLIC_KEY is cleared otherwise).
+#       The base start.sh now launches guard_handler.py (see the Dockerfile).
 #
 # What it does:
 #   1. Picks a GPU profile (same rules as the pod entrypoint.sh):
@@ -12,8 +15,9 @@
 #   2. Resolves quant + lowvram from the profile (QWEN_QUANT / QWEN_LOWVRAM
 #      env vars still win if you set them).
 #   3. Points a stable filename, qwen-image-edit-2511-ACTIVE.gguf, at the
-#      chosen quant file in the model folder (baked into the image in v1_4). The workflow JSON always
-#      uses that one filename, so the client never needs to know the GPU.
+#      chosen quant file in the model folder (baked into the image since v1_4).
+#      The workflow JSON always uses that one filename, so the client never
+#      needs to know the GPU.
 #   4. Falls back to Q4_K_M (always present) if the chosen quant file is
 #      not in the model folder.
 #   5. Hands off to the base image's start script.
@@ -112,7 +116,7 @@ export QWEN_LOWVRAM="${QWEN_LOWVRAM:-$DEFAULT_LOWVRAM}"
 export QWEN_RES="${QWEN_RES:-$DEFAULT_RES}"
 
 # ---------------------------------------------------------------------------
-# Pick the quant file that actually exists on the volume
+# Pick the quant file that actually exists in the image
 # ---------------------------------------------------------------------------
 if [ ! -d "$MODEL_DIR" ]; then
   echo "ERROR: Model folder not found: $MODEL_DIR" >&2
@@ -155,6 +159,13 @@ echo "==============================================" >&2
 # Least privilege: nothing downloads at runtime, so no HF credentials needed.
 # ---------------------------------------------------------------------------
 unset HF_TOKEN HUGGINGFACE_HUB_TOKEN HUGGING_FACE_HUB_TOKEN
+
+# [v1_5] The base start.sh starts an SSH server whenever PUBLIC_KEY is set.
+# A Serverless worker never needs one, so clear it unless ALLOW_SSH=1.
+if [ "${ALLOW_SSH:-0}" != "1" ]; then
+  unset PUBLIC_KEY
+  echo " SSH server   : off (set ALLOW_SSH=1 on the endpoint to allow it)" >&2
+fi
 
 # ---------------------------------------------------------------------------
 # Hand off to the base image's start script (optionally with --lowvram)
