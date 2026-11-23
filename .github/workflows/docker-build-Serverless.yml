@@ -1,4 +1,5 @@
-# docker-build-Serverless.yml (v1_5)
+# docker-build-Serverless.yml (v1_5_1)
+# v1_5_1: fix the base digest step (broken pipe, exit 255).
 # Builds the Qwen-Image-Edit Serverless image and pushes it to Docker Hub.
 #
 # v1_5 security changes:
@@ -81,7 +82,14 @@ jobs:
       - name: Resolve base image digest
         run: |
           set -euo pipefail
-          DIGEST="$(docker buildx imagetools inspect "$BASE_IMAGE" | awk '/^Digest:/{print $2; exit}')"
+          # Capture the output first. Piping straight into `awk ... exit` closes
+          # the pipe early, docker then fails with a broken pipe (exit 255) and
+          # pipefail stops the job. That is what broke run #3 (v1_5 merge).
+          if ! INSPECT="$(docker buildx imagetools inspect "$BASE_IMAGE" 2>&1)"; then
+            echo "::error::Could not inspect ${BASE_IMAGE}: ${INSPECT}"
+            exit 1
+          fi
+          DIGEST="$(awk '/^Digest:/{print $2; exit}' <<< "$INSPECT")"
           case "$DIGEST" in
             sha256:*) ;;
             *) echo "::error::Could not resolve a digest for $BASE_IMAGE"; exit 1 ;;
