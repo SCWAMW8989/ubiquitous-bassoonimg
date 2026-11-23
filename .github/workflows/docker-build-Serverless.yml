@@ -1,14 +1,42 @@
+# docker-build-Serverless.yml (v1_5)
+# Builds the Qwen-Image-Edit Serverless image and pushes it to Docker Hub.
+#
+# v1_5 security changes:
+#   - permissions: contents read only (the job cannot write to the repo).
+#   - actions/checkout pinned to a full commit SHA (v6.1.0), and it no longer
+#     leaves a GitHub token on the runner.
+#   - No third-party actions. Docker Hub login reads the token from stdin.
+#   - "No secrets in the Dockerfile" check before anything is built.
+#   - The base image tag is resolved to its sha256 digest and the build uses
+#     tag@digest, so a re-pushed tag cannot change what you build on.
+#   - Pushes two tags: serverless-v1_5 (moves) and serverless-v1_5-<commit>
+#     (never reused). Point endpoints at the second one.
+#   - One build at a time; docker logout always runs at the end.
 name: Docker Build Serverless
 
 on:
   push:
     branches: [main]
     paths:
-      - "Dockerfile.qwen-image-edit-serverless-v1_4.dockerfile"
+      - "Dockerfile.qwen-image-edit-serverless-v1_5.dockerfile"
       - "extra_model_paths.yaml"
       - "serverless_entrypoint.sh"
+      - "guard_handler.py"
       - ".github/workflows/docker-build-Serverless.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-build-serverless
+  cancel-in-progress: false
+
+env:
+  DOCKERFILE: Dockerfile.qwen-image-edit-serverless-v1_5.dockerfile
+  IMAGE_NAME: qwen-image-edit
+  IMAGE_TAG: serverless-v1_5
+  BASE_IMAGE: runpod/worker-comfyui:5.10.0-base
 
 jobs:
   build:
@@ -23,19 +51,64 @@ jobs:
           df -h /
 
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
-      - name: List files
-        run: find . -iname "*qwen-image-edit-serverless*" -o -name "serverless_entrypoint.sh" -o -name "extra_model_paths.yaml"
+      - name: Syntax checks
+        run: |
+          set -euo pipefail
+          bash -n serverless_entrypoint.sh
+          python3 -m py_compile guard_handler.py
+          echo "Syntax OK"
 
-      - name: Syntax check entrypoint
-        run: bash -n serverless_entrypoint.sh
+      - name: No secrets in the Dockerfile
+        run: |
+          set -euo pipefail
+          # ENV and ARG values end up readable in the image history.
+          if grep -nEi '^[[:space:]]*(ENV|ARG)[[:space:]]+[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|ACCESS_KEY)' "$DOCKERFILE"; then
+            echo "::error::The Dockerfile declares a secret-looking ENV/ARG (lines above). Use a RunPod secret instead."
+            exit 1
+          fi
+          echo "No secret-looking ENV/ARG lines."
 
       - name: Log in to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Resolve base image digest
+        run: |
+          set -euo pipefail
+          DIGEST="$(docker buildx imagetools inspect "$BASE_IMAGE" | awk '/^Digest:/{print $2; exit}')"
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::Could not resolve a digest for $BASE_IMAGE"; exit 1 ;;
+          esac
+          echo "BASE_REF=${BASE_IMAGE}@${DIGEST}" >> "$GITHUB_ENV"
+          echo "Base image: ${BASE_IMAGE}@${DIGEST}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Build and push
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          docker build -f Dockerfile.qwen-image-edit-serverless-v1_4.dockerfile \
-            -t ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_4 .
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/qwen-image-edit:serverless-v1_4
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          REPO="${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+          docker build -f "$DOCKERFILE" \
+            --build-arg BASE_IMAGE="$BASE_REF" \
+            --label org.opencontainers.image.revision="$GITHUB_SHA" \
+            --label org.opencontainers.image.base.name="$BASE_REF" \
+            -t "${REPO}:${IMAGE_TAG}" \
+            -t "${REPO}:${IMAGE_TAG}-${SHORT_SHA}" .
+          docker push "${REPO}:${IMAGE_TAG}"
+          docker push "${REPO}:${IMAGE_TAG}-${SHORT_SHA}"
+          {
+            echo "Pushed: ${REPO}:${IMAGE_TAG}"
+            echo "Pushed (pin this on the endpoint): ${REPO}:${IMAGE_TAG}-${SHORT_SHA}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Log out of Docker Hub
+        if: always()
+        run: docker logout || true

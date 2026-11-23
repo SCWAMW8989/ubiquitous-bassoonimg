@@ -1,5 +1,16 @@
-# Dockerfile.qwen-image-edit-serverless-v1_4
+# Dockerfile.qwen-image-edit-serverless-v1_5
 # Qwen-Image-Edit-2511 (Unsloth GGUF) on RunPod Serverless, models baked in.
+#
+# v1_5 (security hardening, same models and workflow as v1_4):
+#   - guard_handler.py wraps the stock handler. Only the Qwen-Image-Edit node
+#     types are accepted, and image sizes, names, steps and resolution are
+#     capped (see the top of guard_handler.py). The iPhone Shortcut workflow
+#     passes unchanged.
+#   - The base image comes in as a build arg. The GitHub workflow resolves the
+#     tag to its exact sha256 digest, so every build uses a known base.
+#   - ComfyUI log level defaults to INFO instead of DEBUG (fewer prompt
+#     details in RunPod logs).
+#   - The entrypoint ignores PUBLIC_KEY (no SSH server) unless ALLOW_SSH=1.
 #
 # v1_4: no Network Volume. The Q4_K_M diffusion model, text encoder, mmproj
 # and VAE (about 19.3 GB) are downloaded at build time into /opt/qwen-edit,
@@ -7,14 +18,14 @@
 # workflow JSON keeps working unchanged.
 
 # Base image: runpod/worker-comfyui, pinned to a tag that exists on Docker Hub.
-# 5.10.0-base was the newest published base tag on 2026-11-16 (release 5.11.0
-# exists on GitHub but has no image on Docker Hub; latest-base is from March).
-# The base tag IS your ComfyUI pin (replaces COMFYUI_PINNED_COMMIT).
-FROM runpod/worker-comfyui:5.10.0-base
+# 5.10.0-base was the newest published base tag on 2026-11-16.
+# The base tag IS your ComfyUI pin. The workflow passes tag@sha256:digest.
+ARG BASE_IMAGE=runpod/worker-comfyui:5.10.0-base
+FROM ${BASE_IMAGE}
 
 # ComfyUI-GGUF node, pinned to the commit that built cleanly in Actions run #2
-# (2026-11-16). Override with --build-arg GGUF_NODE_COMMIT=... to move it;
-# set it empty to track the default branch at build time.
+# (2026-11-16). Override with --build-arg GGUF_NODE_COMMIT=... to move it.
+# Keep it pinned: an empty value tracks whatever the default branch holds.
 ARG GGUF_NODE_COMMIT=6ea2651e7df66d7585f6ffee804b20e92fb38b8a
 
 RUN git clone https://github.com/city96/ComfyUI-GGUF /comfyui/custom_nodes/ComfyUI-GGUF \
@@ -53,6 +64,18 @@ RUN wget $WGET_OPTS -O "$MODEL_ROOT/vae/qwen_image_vae.safetensors" \
 RUN rm -f /comfyui/extra_model_paths.yaml
 COPY extra_model_paths.yaml /comfyui/extra_model_paths.yaml
 
+# ---------------------------------------------------------------------------
+# Security wrapper: start.sh runs /guard_handler.py instead of /handler.py.
+# The build fails here if the base image's start.sh changes shape, so a base
+# upgrade can never silently drop the guard.
+# ---------------------------------------------------------------------------
+COPY --chmod=0644 guard_handler.py /guard_handler.py
+RUN test -f /start.sh && test -f /handler.py \
+ && sed -i 's#python -u /handler.py#python -u /guard_handler.py#g' /start.sh \
+ && grep -q 'python -u /guard_handler.py' /start.sh \
+ && ! grep -q 'python -u /handler.py' /start.sh \
+ && python -m py_compile /guard_handler.py
+
 # GPU auto-detect wrapper (runs before the base image's own start script)
 COPY --chmod=0755 serverless_entrypoint.sh /opt/serverless_entrypoint.sh
 
@@ -60,6 +83,7 @@ COPY --chmod=0755 serverless_entrypoint.sh /opt/serverless_entrypoint.sh
 # Only Q4_K_M is baked, so every GPU profile runs Q4_K_M (the entrypoint
 # falls back to it automatically when a profile asks for another quant).
 ENV QWEN_GPU_PROFILE=auto \
-    QWEN_VOLUME_ROOT=/opt/qwen-edit
+    QWEN_VOLUME_ROOT=/opt/qwen-edit \
+    COMFY_LOG_LEVEL=INFO
 
 CMD ["/bin/bash", "/opt/serverless_entrypoint.sh"]
