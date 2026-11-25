@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""guard_handler.py (Serverless Edition v1_5)
+"""guard_handler.py (Serverless Edition v1_6)
 
 Security wrapper around the stock worker-comfyui handler (/handler.py).
 start.sh is patched at build time to run this file instead of /handler.py.
@@ -20,6 +20,9 @@ Checks (all limits can be changed with endpoint env vars, no rebuild):
   - ImageScaleToTotalPixels megapixels <= GUARD_MAX_MEGAPIXELS  default 2.0
   - Any text value <= GUARD_MAX_TEXT characters                 default 4000
   - The per-request comfy_org_api_key field is removed (no paid API nodes)
+  - [v1_6] LoraLoaderModelOnly allowed: plain .safetensors names only,
+    at most GUARD_MAX_LORAS of them                              default 3
+    |strength_model| <= GUARD_MAX_LORA_STRENGTH                  default 2.0
 
 GUARD_DISABLE=1 turns every check off (emergency use only).
 A rejected job returns {"error": "..."} and never reaches ComfyUI.
@@ -48,6 +51,7 @@ ALLOWED_NODES = {
     "KSampler",
     "VAEDecode",
     "SaveImage",
+    "LoraLoaderModelOnly",  # [v1_6]
 }
 ALLOWED_NODES |= {
     n.strip() for n in os.environ.get("GUARD_EXTRA_NODES", "").split(",") if n.strip()
@@ -74,6 +78,8 @@ MAX_IMAGE_MB = _float_env("GUARD_MAX_IMAGE_MB", 12.0)
 MAX_STEPS = _int_env("GUARD_MAX_STEPS", 60)
 MAX_MEGAPIXELS = _float_env("GUARD_MAX_MEGAPIXELS", 2.0)
 MAX_TEXT = _int_env("GUARD_MAX_TEXT", 4000)
+MAX_LORAS = _int_env("GUARD_MAX_LORAS", 3)
+MAX_LORA_STRENGTH = _float_env("GUARD_MAX_LORA_STRENGTH", 2.0)
 DISABLED = os.environ.get("GUARD_DISABLE", "0") == "1"
 
 # Plain file name: starts with a letter or digit, then letters, digits, . _ -
@@ -125,6 +131,7 @@ def check_job(job_input):
         uploaded.add(name)
 
     # ---- nodes ---------------------------------------------------------
+    lora_count = 0
     for node_id, node in workflow.items():
         if not isinstance(node, dict):
             return None, f"Node {node_id} is not an object"
@@ -155,6 +162,19 @@ def check_job(job_input):
             steps = inputs.get("steps", 0)
             if not isinstance(steps, (int, float)) or steps > MAX_STEPS:
                 return None, f"Node {node_id}: steps must be a number <= {MAX_STEPS}"
+
+        if ctype == "LoraLoaderModelOnly":
+            lora_count += 1
+            if lora_count > MAX_LORAS:
+                return None, f"Too many LoRA nodes; the limit is {MAX_LORAS}"
+            lname = inputs.get("lora_name")
+            if (not isinstance(lname, str) or not SAFE_NAME.match(lname)
+                    or not lname.endswith(".safetensors")):
+                return None, f"Node {node_id}: lora_name not allowed: {lname!r} (plain .safetensors file name only)"
+            strength = inputs.get("strength_model", 1.0)
+            if (isinstance(strength, bool) or not isinstance(strength, (int, float))
+                    or abs(strength) > MAX_LORA_STRENGTH):
+                return None, f"Node {node_id}: strength_model must be a number between -{MAX_LORA_STRENGTH:g} and {MAX_LORA_STRENGTH:g}"
 
         if ctype == "ImageScaleToTotalPixels":
             mp = inputs.get("megapixels", 0)

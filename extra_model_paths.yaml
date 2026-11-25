@@ -5,3 +5,4 @@ qwen_edit_baked:
   text_encoders: models/text_encoders/
   clip: models/text_encoders/
   vae: models/vae/
+  loras: models/loras/

@@ -1,4 +1,5 @@
-# docker-build-Serverless.yml (v1_5_1)
+# docker-build-Serverless.yml (v1_6)
+# v1_6: builds the LoRA image (Dockerfile v1_6), tag serverless-v1_6.
 # v1_5_1: fix the base digest step (broken pipe, exit 255).
 # Builds the Qwen-Image-Edit Serverless image and pushes it to Docker Hub.
 #
@@ -19,7 +20,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "Dockerfile.qwen-image-edit-serverless-v1_5.dockerfile"
+      - "Dockerfile.qwen-image-edit-serverless-v1_6.dockerfile"
       - "extra_model_paths.yaml"
       - "serverless_entrypoint.sh"
       - "guard_handler.py"
@@ -34,9 +35,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DOCKERFILE: Dockerfile.qwen-image-edit-serverless-v1_5.dockerfile
+  DOCKERFILE: Dockerfile.qwen-image-edit-serverless-v1_6.dockerfile
   IMAGE_NAME: qwen-image-edit
-  IMAGE_TAG: serverless-v1_5
+  IMAGE_TAG: serverless-v1_6
   BASE_IMAGE: runpod/worker-comfyui:5.10.0-base
 
 jobs:

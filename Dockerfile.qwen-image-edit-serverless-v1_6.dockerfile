@@ -1,5 +1,14 @@
-# Dockerfile.qwen-image-edit-serverless-v1_5
+# Dockerfile.qwen-image-edit-serverless-v1_6
 # Qwen-Image-Edit-2511 (Unsloth GGUF) on RunPod Serverless, models baked in.
+#
+# v1_6 (LoRA support, everything from v1_5 kept):
+#   - LoRA files are baked into /opt/qwen-edit/ComfyUI/models/loras, one layer
+#     per file, and extra_model_paths.yaml gains a "loras:" line.
+#   - First LoRA baked: Qwen-Image-Edit-2511-Lightning 4-step (bf16, ~0.85 GB).
+#     With it, KSampler runs 4 steps at cfg 1.0 instead of the full count.
+#   - guard_handler.py now allows LoraLoaderModelOnly, with name and strength
+#     checks (see GUARD_MAX_LORAS / GUARD_MAX_LORA_STRENGTH).
+#   - Workflows that do not use a LoRA run exactly as before.
 #
 # v1_5 (security hardening, same models and workflow as v1_4):
 #   - guard_handler.py wraps the stock handler. Only the Qwen-Image-Edit node
@@ -41,7 +50,7 @@ RUN git clone https://github.com/city96/ComfyUI-GGUF /comfyui/custom_nodes/Comfy
 ARG MODEL_ROOT=/opt/qwen-edit/ComfyUI/models
 ARG WGET_OPTS="-nv --tries=5 --waitretry=10 --retry-connrefused --timeout=60"
 
-RUN mkdir -p "$MODEL_ROOT/diffusion_models" "$MODEL_ROOT/text_encoders" "$MODEL_ROOT/vae"
+RUN mkdir -p "$MODEL_ROOT/diffusion_models" "$MODEL_ROOT/text_encoders" "$MODEL_ROOT/vae" "$MODEL_ROOT/loras"
 
 # Diffusion model, Q4_K_M (~12.8 GB)
 RUN wget $WGET_OPTS -O "$MODEL_ROOT/diffusion_models/qwen-image-edit-2511-Q4_K_M.gguf" \
@@ -57,8 +66,24 @@ RUN wget $WGET_OPTS -O "$MODEL_ROOT/text_encoders/Qwen2.5-VL-7B-Instruct-UD-Q4_K
 
 # VAE (~0.25 GB)
 RUN wget $WGET_OPTS -O "$MODEL_ROOT/vae/qwen_image_vae.safetensors" \
-      "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors" \
- && ls -lh "$MODEL_ROOT"/*
+      "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors"
+
+# ---------------------------------------------------------------------------
+# [v1_6] LoRAs. One RUN per file, same pattern as the models above.
+# The file name you save here is the exact "lora_name" the workflow uses.
+# File names must be plain: letters, digits, . _ - (the guard rejects others).
+# ---------------------------------------------------------------------------
+
+# Lightning 4-step LoRA (~0.85 GB). Use with KSampler steps 4, cfg 1.0.
+RUN wget $WGET_OPTS -O "$MODEL_ROOT/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors" \
+      "https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"
+
+# Your own LoRA: copy this block once per file, then fill in the two values.
+# LORA_FILE_URL_HERE must be a direct download link (Hugging Face ".../resolve/main/...").
+# RUN wget $WGET_OPTS -O "$MODEL_ROOT/loras/LORA_NAME_HERE.safetensors" \
+#       "LORA_FILE_URL_HERE"
+
+RUN ls -lh "$MODEL_ROOT"/*
 
 # Model paths: point ComfyUI at the baked folder
 RUN rm -f /comfyui/extra_model_paths.yaml
